@@ -14,6 +14,11 @@ on:
           - 4.0.0-boost-6.3.2
           - 4.0.0-boost-6.3.2.E
           - 4.0.0-boost-6.2.0
+      branch:
+        description: 'Branch of this fork to build instead of a release (e.g. boost-g7). Leave empty to build the release above.'
+        required: false
+        default: ''
+        type: string
 
 env:
   BOOST_REPO: tim2000s/Boost
@@ -148,15 +153,17 @@ jobs:
       - name: Checkout selected Boost release
         uses: actions/checkout@v5
         with:
-          repository: ${{ env.BOOST_REPO }}
-          ref: refs/tags/${{ github.event.inputs.tagName }}
+          repository: ${{ github.event.inputs.branch != '' && github.repository || env.BOOST_REPO }}
+          ref: ${{ github.event.inputs.branch != '' && format('refs/heads/{0}', github.event.inputs.branch) || format('refs/tags/{0}', github.event.inputs.tagName) }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Set VERSION
         env:
           TAG: ${{ github.event.inputs.tagName }}
-        run: echo "VERSION=$TAG" >> "$GITHUB_ENV"
+          BRANCH: ${{ github.event.inputs.branch }}
+        run: |
+          if [ -n "$BRANCH" ]; then echo "VERSION=$TAG-$BRANCH" >> "$GITHUB_ENV"; else echo "VERSION=$TAG" >> "$GITHUB_ENV"; fi
 
       - name: Set up JDK
         uses: actions/setup-java@v5
