@@ -14,6 +14,11 @@ on:
           - 4.0.0-boost-6.3.2
           - 4.0.0-boost-6.3.2.E
           - 4.0.0-boost-6.2.0
+      branch:
+        description: 'Branch of this fork to build instead of a release (e.g. boost-g7). Leave empty to build the release above.'
+        required: false
+        default: ''
+        type: string
 
 env:
   BOOST_REPO: tim2000s/Boost
@@ -81,7 +86,9 @@ jobs:
           }
 
           # Check secrets
-          check_secret "$GDRIVE_OAUTH2" "GDRIVE_OAUTH2"
+          if [ -z "$GDRIVE_OAUTH2" ]; then
+            echo "ℹ️ GDRIVE_OAUTH2 not set: the APKs will be attached to this run as an artifact instead of Google Drive."
+          fi
 
           check_secret "$KEYSTORE_BASE64" "KEYSTORE_BASE64"
           check_secret "$KEYSTORE_PASSWORD" "KEYSTORE_PASSWORD"
@@ -128,6 +135,7 @@ jobs:
           echo "✅ Keystore and credentials validated."
 
       - name: Decode GDrive OAuth2 secrets
+        if: env.GDRIVE_OAUTH2 != ''
         run: |
           # GDRIVE_OAUTH2 is already in the environment from the decode step
           # above, so nothing has to be pasted into the script text here either.
@@ -148,15 +156,17 @@ jobs:
       - name: Checkout selected Boost release
         uses: actions/checkout@v5
         with:
-          repository: ${{ env.BOOST_REPO }}
-          ref: refs/tags/${{ github.event.inputs.tagName }}
+          repository: ${{ github.event.inputs.branch != '' && github.repository || env.BOOST_REPO }}
+          ref: ${{ github.event.inputs.branch != '' && format('refs/heads/{0}', github.event.inputs.branch) || format('refs/tags/{0}', github.event.inputs.tagName) }}
           fetch-depth: 1
           persist-credentials: false
 
       - name: Set VERSION
         env:
           TAG: ${{ github.event.inputs.tagName }}
-        run: echo "VERSION=$TAG" >> "$GITHUB_ENV"
+          BRANCH: ${{ github.event.inputs.branch }}
+        run: |
+          if [ -n "$BRANCH" ]; then echo "VERSION=$TAG-$BRANCH" >> "$GITHUB_ENV"; else echo "VERSION=$TAG" >> "$GITHUB_ENV"; fi
 
       - name: Set up JDK
         uses: actions/setup-java@v5
@@ -199,7 +209,16 @@ jobs:
           mv app/build/outputs/apk/full/release/*.apk boost-${VERSION}.apk
           mv wear/build/outputs/apk/full/release/*.apk boost-wear-${VERSION}.apk
 
+      - name: Upload APKs as a GitHub artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: boost-${{ env.VERSION }}
+          path: |
+            boost-*.apk
+          retention-days: 30
+
       - name: Retrieving Google Drive access token
+        if: env.GDRIVE_OAUTH2 != ''
         run: |
           echo "🔐 Getting Google OAuth2 access token..."
           TOKEN_RESPONSE=$(curl -s -X POST https://oauth2.googleapis.com/token \
@@ -217,6 +236,7 @@ jobs:
           echo "✅ Access token obtained."
 
       - name: Upload APKs to Google Drive
+        if: env.GDRIVE_OAUTH2 != ''
         run: |
           set -e
           echo "🔐 Start uploading APKs to Google Drive..."
